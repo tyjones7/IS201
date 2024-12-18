@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+        }
+        .game-container {
+            margin-top: 50px;
+        }
+        h1 {
+            color: #333;
+        }
+        #board {
+            margin: 20px auto;
+        }
+        .controls {
+            margin-top: 20px;
+        }
+        .controls label {
+            font-weight: bold;
+        }
+        .controls select, .controls button {
+            margin-left: 10px;
+            padding: 5px 10px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .chessboard {
+            border: 2px solid #444;
+            display: grid;
+            grid-template-columns: repeat(8, 50px);
+            grid-template-rows: repeat(8, 50px);
+            width: 400px;
+            height: 400px;
+            position: relative;
+            margin: 0 auto;
+        }
+        .square {
+            width: 50px;
+            height: 50px;
+            position: relative;
+        }
+        .square.light {
+            background-color: #f0d9b5;
+        }
+        .square.dark {
+            background-color: #b58863;
+        }
+        .square.last-move {
+            background-color: #b4e66d !important;
+        }
+        .piece {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            cursor: grab;
+            position: absolute;
+            z-index: 1;
+        }
+        .status {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        .mode-selection {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .mode-selection.hidden {
+            display: none;
+        }
+        .controls.hidden {
+            display: none;
+        }
+        .back-button {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background-color: #4a4a4a;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .back-button:hover {
+            background-color: #666666;
+        }
+    </style>
+    <!-- Add chess.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+</head>
+<body>
+    <a href="interest.html" class="back-button">← Back</a>
+    <div class="game-container">
+        <h1>Play Chess</h1>
+        <div class="mode-selection" id="modeSelection">
+            <button id="singlePlayer">Single Player</button>
+            <button id="twoPlayer">Two Player</button>
+        </div>
+        <div id="board" class="chessboard"></div>
+        <div class="status" id="status"></div>
+        <div class="controls hidden" id="gameControls">
+            <button id="reset">New Game</button>
+        </div>
+    </div>
+
+    <script>
+        // Define chess pieces with Unicode characters
+        const PIECES = {
+            'p': '♟', 'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚',  // black pieces
+            'P': '♙', 'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔'   // white pieces
+        };
+
+        class ChessGame {
+            constructor() {
+                this.chess = new Chess();
+                this.boardElement = document.getElementById('board');
+                this.resetButton = document.getElementById('reset');
+                this.statusElement = document.getElementById('status');
+                this.modeSelection = document.getElementById('modeSelection');
+                this.singlePlayerButton = document.getElementById('singlePlayer');
+                this.twoPlayerButton = document.getElementById('twoPlayer');
+                this.gameControls = document.getElementById('gameControls');
+                this.selectedPiece = null;
+                this.gameMode = null;
+                this.isAIThinking = false;
+                this.lastMoveSquare = null;
+                
+                // Add event listeners
+                this.resetButton.addEventListener('click', () => this.resetGame());
+                this.singlePlayerButton.addEventListener('click', () => this.startGame('single'));
+                this.twoPlayerButton.addEventListener('click', () => this.startGame('two'));
+
+                // Initialize the game
+                this.initBoard();
+                // Don't start automatically, wait for mode selection
+                this.boardElement.style.opacity = '0.7';
+                this.statusElement.textContent = 'Select game mode to start';
+            }
+
+            startGame(mode) {
+                this.gameMode = mode;
+                this.modeSelection.style.display = 'none';
+                this.gameControls.classList.remove('hidden');
+                this.boardElement.style.opacity = '1';
+                this.chess.reset();
+                this.renderPosition();
+                this.updateStatus();
+            }
+
+            // Handle the move attempt and trigger AI move if in single player mode
+            handleMove(from, to) {
+                // Prevent moves if no game mode is selected
+                if (!this.gameMode) {
+                    this.statusElement.textContent = 'Please select a game mode to start';
+                    return false;
+                }
+
+                if (this.isAIThinking) return false; // Prevent moves while AI is thinking
+
+                try {
+                    const move = {
+                        from: from,
+                        to: to,
+                        promotion: 'q' // Always promote to queen for simplicity
+                    };
+
+                    const result = this.chess.move(move);
+                    if (result) {
+                        // Clear previous last move highlight
+                        if (this.lastMoveSquare) {
+                            const prevSquare = this.boardElement.querySelector(`[data-square="${this.lastMoveSquare}"]`);
+                            if (prevSquare) {
+                                prevSquare.classList.remove('last-move');
+                            }
+                        }
+                        
+                        // Add highlight to new move
+                        this.lastMoveSquare = to;
+                        const newSquare = this.boardElement.querySelector(`[data-square="${to}"]`);
+                        if (newSquare) {
+                            newSquare.classList.add('last-move');
+                        }
+
+                        this.renderPosition();
+                        this.updateStatus();
+
+                        // If in single player mode and it's black's turn, make AI move
+                        if (this.gameMode === 'single' && !this.chess.game_over() && this.chess.turn() === 'b') {
+                            this.makeAIMove();
+                        }
+                        return true;
+                    }
+                } catch (e) {
+                    return false;
+                }
+                return false;
+            }
+
+            // AI move handling
+            async makeAIMove() {
+                this.isAIThinking = true;
+                this.statusElement.textContent = 'AI is thinking...';
+                
+                await new Promise(resolve => setTimeout(resolve, 500)); // Add a small delay for better UX
+
+                // Get all possible moves
+                const moves = this.chess.moves({ verbose: true });
+                if (moves.length === 0) return; // No valid moves
+
+                // Piece values for evaluation
+                const pieceValues = {
+                    'p': 1,
+                    'n': 3,
+                    'b': 3,
+                    'r': 5,
+                    'q': 9,
+                    'k': 0  // King's value isn't used for captures
+                };
+
+                // Position weights for pieces (preferring center control and development)
+                const positionWeights = {
+                    'p': [  // Pawns
+                        [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0],
+                        [0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5,  0.5],
+                        [0.1,  0.1,  0.2,  0.3,  0.3,  0.2,  0.1,  0.1],
+                        [0.05, 0.05, 0.1,  0.25, 0.25, 0.1,  0.05, 0.05],
+                        [0.0,  0.0,  0.0,  0.2,  0.2,  0.0,  0.0,  0.0],
+                        [0.05, -0.05, -0.1, 0.0, 0.0, -0.1, -0.05, 0.05],
+                        [0.05, 0.1,  0.1,  -0.2, -0.2, 0.1,  0.1,  0.05],
+                        [0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0]
+                    ],
+                    'n': [  // Knights
+                        [-0.5, -0.4, -0.3, -0.3, -0.3, -0.3, -0.4, -0.5],
+                        [-0.4, -0.2,  0.0,  0.0,  0.0,  0.0, -0.2, -0.4],
+                        [-0.3,  0.0,  0.1,  0.15, 0.15, 0.1,  0.0, -0.3],
+                        [-0.3,  0.05, 0.15, 0.2,  0.2,  0.15, 0.05, -0.3],
+                        [-0.3,  0.0,  0.15, 0.2,  0.2,  0.15, 0.0, -0.3],
+                        [-0.3,  0.05, 0.1,  0.15, 0.15, 0.1,  0.05, -0.3],
+                        [-0.4, -0.2,  0.0,  0.05, 0.05, 0.0, -0.2, -0.4],
+                        [-0.5, -0.4, -0.3, -0.3, -0.3, -0.3, -0.4, -0.5]
+                    ]
+                };
+
+                // Evaluate a move
+                const evaluateMove = (move) => {
+                    let score = 0;
+                    
+                    // Capture value
+                    if (move.captured) {
+                        score += pieceValues[move.captured] * 10;
+                    }
+
+                    // Position value for the piece
+                    const piece = move.piece.toLowerCase();
+                    const toSquare = move.to;
+                    const rank = 8 - parseInt(toSquare[1]);
+                    const file = toSquare.charCodeAt(0) - 'a'.charCodeAt(0);
+                    
+                    if (positionWeights[piece]) {
+                        score += positionWeights[piece][rank][file] * 5;
+                    }
+
+                    // Bonus for development in early game
+                    if (this.chess.history().length < 10) {
+                        if (piece === 'n' || piece === 'b') {
+                            score += 0.5;
+                        }
+                    }
+
+                    // Bonus for check
+                    const testBoard = new Chess(this.chess.fen());
+                    testBoard.move(move);
+                    if (testBoard.in_check()) {
+                        score += 0.3;
+                    }
+
+                    // Small random factor to add variety
+                    score += Math.random() * 0.2;
+
+                    return score;
+                };
+
+                // Evaluate all possible moves and choose the best one
+                let bestMove = null;
+                let bestScore = -Infinity;
+
+                for (const move of moves) {
+                    const score = evaluateMove(move);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = move;
+                    }
+                }
+
+                // Make the best move
+                if (bestMove) {
+                    // Clear previous last move highlight
+                    if (this.lastMoveSquare) {
+                        const prevSquare = this.boardElement.querySelector(`[data-square="${this.lastMoveSquare}"]`);
+                        if (prevSquare) {
+                            prevSquare.classList.remove('last-move');
+                        }
+                    }
+
+                    this.chess.move(bestMove);
+                    
+                    // Add highlight to new move
+                    this.lastMoveSquare = bestMove.to;
+                    const newSquare = this.boardElement.querySelector(`[data-square="${bestMove.to}"]`);
+                    if (newSquare) {
+                        newSquare.classList.add('last-move');
+                    }
+
+                    this.renderPosition();
+                }
+
+                this.isAIThinking = false;
+                this.updateStatus();
+            }
+
+            resetGame() {
+                this.chess.reset();
+                this.renderPosition();
+                this.updateStatus();
+                this.gameMode = null;
+                this.lastMoveSquare = null; // Clear last move tracking
+                this.boardElement.style.opacity = '0.7';
+                this.statusElement.textContent = 'Select game mode to start';
+                this.modeSelection.style.display = 'flex';
+                this.gameControls.classList.add('hidden');
+                // Clear any remaining highlights
+                const squares = this.boardElement.getElementsByClassName('square');
+                for (const square of squares) {
+                    square.classList.remove('last-move');
+                }
+            }
+
+            initBoard() {
+                this.boardElement.innerHTML = '';
+                // Create board squares
+                for (let rank = 8; rank >= 1; rank--) {
+                    for (let file = 0; file < 8; file++) {
+                        const square = document.createElement('div');
+                        const isLight = (rank + file) % 2 === 1;
+                        square.className = `square ${isLight ? 'light' : 'dark'}`;
+                        const fileChar = String.fromCharCode(97 + file); // Convert 0-7 to a-h
+                        square.dataset.square = `${fileChar}${rank}`;
+                        
+                        square.addEventListener('dragover', e => e.preventDefault());
+                        square.addEventListener('drop', e => this.handleDrop(e, square));
+                        square.addEventListener('click', () => this.handleSquareClick(square));
+                        
+                        this.boardElement.appendChild(square);
+                    }
+                }
+                this.renderPosition();
+            }
+
+            renderPosition() {
+                // Clear all pieces
+                const squares = this.boardElement.querySelectorAll('.square');
+                squares.forEach(square => {
+                    const piece = square.querySelector('.piece');
+                    if (piece) piece.remove();
+                });
+
+                // Add pieces based on current position
+                for (let rank = 8; rank >= 1; rank--) {
+                    for (let file = 0; file < 8; file++) {
+                        const square = String.fromCharCode(97 + file) + rank;
+                        const piece = this.chess.get(square);
+                        if (piece) {
+                            const squareElement = document.querySelector(`[data-square="${square}"]`);
+                            if (squareElement) {
+                                const pieceElement = document.createElement('div');
+                                pieceElement.className = 'piece';
+                                pieceElement.textContent = PIECES[piece.color === 'w' ? piece.type.toUpperCase() : piece.type];
+                                pieceElement.draggable = true;
+                                pieceElement.addEventListener('dragstart', () => this.handlePieceSelect(squareElement));
+                                squareElement.appendChild(pieceElement);
+                            }
+                        }
+                    }
+                }
+            }
+
+            clearHighlights() {
+                const squares = this.boardElement.getElementsByClassName('square');
+                for (const square of squares) {
+                    square.style.backgroundColor = '';
+                }
+                // Restore last move highlight if exists
+                if (this.lastMoveSquare) {
+                    const square = this.boardElement.querySelector(`[data-square="${this.lastMoveSquare}"]`);
+                    if (square) {
+                        square.classList.add('last-move');
+                    }
+                }
+            }
+
+            handleSquareClick(square) {
+                // Prevent piece selection if no game mode is selected
+                if (!this.gameMode) {
+                    this.statusElement.textContent = 'Please select a game mode to start';
+                    return;
+                }
+
+                if (this.selectedPiece) {
+                    // Try to make a move
+                    if (this.handleMove(this.selectedPiece.dataset.square, square.dataset.square)) {
+                        this.selectedPiece = null;
+                        this.clearHighlights();
+                    } else {
+                        // If the move was invalid, check if clicking on another own piece
+                        const piece = square.querySelector('.piece');
+                        if (piece && this.isPlayerPiece(square)) {
+                            this.handlePieceSelect(square);
+                        }
+                    }
+                } else {
+                    // Select piece
+                    if (this.isPlayerPiece(square)) {
+                        this.handlePieceSelect(square);
+                    }
+                }
+            }
+
+            isPlayerPiece(square) {
+                // Prevent piece selection if no game mode is selected
+                if (!this.gameMode) return false;
+
+                const piece = square.querySelector('.piece');
+                if (!piece) return false;
+                
+                // In single player mode, player can only move white pieces
+                if (this.gameMode === 'single') {
+                    const pieceColor = piece.textContent === piece.textContent.toUpperCase() ? 'w' : 'b';
+                    return pieceColor === 'w';
+                }
+                
+                // In two player mode, check if it's the current player's turn
+                const pieceColor = piece.textContent === piece.textContent.toUpperCase() ? 'w' : 'b';
+                return pieceColor === this.chess.turn();
+            }
+
+            handlePieceSelect(square) {
+                // Prevent piece selection if no game mode is selected
+                if (!this.gameMode) {
+                    this.statusElement.textContent = 'Please select a game mode to start';
+                    return;
+                }
+
+                this.clearHighlights();
+                this.selectedPiece = square;
+                square.style.backgroundColor = '#aaf'; // Highlight selected square
+            }
+
+            handleDrop(e, targetSquare) {
+                e.preventDefault();
+                // Prevent drops if no game mode is selected
+                if (!this.gameMode) {
+                    this.statusElement.textContent = 'Please select a game mode to start';
+                    return;
+                }
+
+                if (this.selectedPiece) {
+                    this.handleMove(this.selectedPiece.dataset.square, targetSquare.dataset.square);
+                    this.selectedPiece = null;
+                    this.clearHighlights();
+                }
+            }
+
+            updateStatus() {
+                let status = '';
+                
+                if (this.chess.in_checkmate()) {
+                    status = `Game Over - ${this.chess.turn() === 'w' ? 'Black' : 'White'} wins by checkmate!`;
+                } else if (this.chess.in_draw()) {
+                    status = 'Game Over - Draw!';
+                } else if (this.chess.in_check()) {
+                    status = `${this.chess.turn() === 'w' ? 'White' : 'Black'} is in check!`;
+                } else {
+                    status = `${this.chess.turn() === 'w' ? 'White' : 'Black'} to move`;
+                }
+
+                this.statusElement.textContent = status;
+            }
+        }
+
+        // Start the game when the page loads
+        window.onload = () => new ChessGame();
+    </script>
+</body>
+</html>
